@@ -62,7 +62,7 @@ Langchaingo extension to use Cloudflare Workers AI as an LLM
 ### Generate text completions:
 ```go
     mc := []llms.MessageContent{
-        llms.TextParts(schema.ChatMessageTypeAI, "assistant-prompt"),
+        llms.TextParts(schema.ChatMessageTypeAI, "<assistant-prompt>"),
     }
     
     for i := range promptSplit {
