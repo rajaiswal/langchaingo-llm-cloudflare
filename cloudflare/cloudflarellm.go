@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrEmptyResponse       = errors.New("no response")
-	ErrIncompleteEmbedding = errors.New("no all input got emmbedded")
+	ErrIncompleteEmbedding = errors.New("no all input got embedded")
 )
 
 // LLM is a cloudflare LLM implementation.
@@ -24,7 +24,7 @@ type LLM struct {
 
 var _ llms.Model = (*LLM)(nil)
 
-// New creates a new ollama LLM implementation.
+// New creates a new cloudflare LLM implementation.
 func New(opts ...Option) (*LLM, error) {
 	o := options{}
 	for _, opt := range opts {
@@ -32,6 +32,7 @@ func New(opts ...Option) (*LLM, error) {
 	}
 
 	client := cloudflareclient.NewClient(
+		o.httpClient,
 		o.cloudflareAccountID,
 		o.cloudflareServerURL.String(),
 		o.cloudflareToken,
@@ -59,16 +60,18 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		opt(&opts)
 	}
 
-	// Our input is a sequence of MessageContent, each of which potentially has
+	// Our input is a sequence of Message, each of which potentially has
 	// a sequence of Part that is text.
 	// We have to convert it to a format Cloudflare understands: []Message, which
 	// has a sequence of Message, each of which has a role and content - single
 	// text + potential images.
-	chatMsgs := []cloudflareclient.Message{
-		{
+	chatMsgs := []cloudflareclient.Message{}
+
+	if o.options.system != "" {
+		chatMsgs = append(chatMsgs, cloudflareclient.Message{
 			Role:    cloudflareclient.RoleSystem,
 			Content: o.options.system,
-		},
+		})
 	}
 
 	for i := range messages {
@@ -92,9 +95,9 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 				foundText = true
 				text = pt.Text
 			case llms.BinaryContent:
-				// images = append(images, privategptclient.ImageData(pt.Data))
+				return nil, errors.New("only supports Text right now")
 			default:
-				return nil, errors.New("only support Text and BinaryContent parts right now")
+				return nil, errors.New("only supports Text right now")
 			}
 		}
 
@@ -105,8 +108,10 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	stream := func(b bool) *bool { return &b }(opts.StreamingFunc != nil)
 
 	res, err := o.client.GenerateContent(ctx, &cloudflareclient.GenerateContentRequest{
-		Messages: chatMsgs,
-	}, *stream)
+		Messages:      chatMsgs,
+		Stream:        *stream,
+		StreamingFunc: opts.StreamingFunc,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -120,20 +125,6 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 			Content: res.Result.Response,
 		},
 	}
-
-	// for i := range res.Messages {
-	// 	choice := res.Choices[i]
-	//
-	// 	choices = append(choices, &llms.ContentChoice{
-	// 		Content: choice.GetMessage().Value.OpenAIMessage.Content.String,
-	// 		// GenerationInfo: map[string]any{
-	// 		// 	"CompletionTokens": resp.EvalCount,
-	// 		// 	"PromptTokens":     resp.PromptEvalCount,
-	// 		// 	"TotalTokens":      resp.EvalCount + resp.PromptEvalCount,
-	// 		// },
-	// 		StopReason: choice.GetFinishReason().String,
-	// 	})
-	// }
 
 	response := &llms.ContentResponse{Choices: choices}
 
